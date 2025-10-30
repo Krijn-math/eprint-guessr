@@ -10,6 +10,7 @@ import re
 from math import log
 from os import system
 import matplotlib.pyplot as plt
+from semanticscholar import SemanticScholar
 
 
 # TODO: fix bad pdfs
@@ -73,11 +74,9 @@ def random_paper():
 
 def get_png(year, id):
     url = f"https://eprint.iacr.org/{year}/{id}.pdf"
-
     # Download PDF
     response = requests.get(url)
     pdf_bytes = io.BytesIO(response.content)
-
     # Open PDF
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     # print("got pdf")
@@ -89,8 +88,6 @@ def get_png(year, id):
     pix = page.get_pixmap(matrix=mat)
 
     # pix = page.get_pixmap()
-
-    # print("got png")
     
     return pix
 
@@ -186,22 +183,15 @@ def get_title(year, id):
     if h3:
         return h3.text
     
-def get_cites(title):
-    query = urllib.parse.quote(f"'{title}'")
-    url = f"https://scholar.google.com/scholar?hl=nl&as_sdt=0%2C5&q={query}"
-    headers = {"User-Agent": "Mozilla/5.0"}  # Google Scholar blocks requests without UA
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
+def get_cites(title):    
+    sch = SemanticScholar()
+    paper = sch.search_paper(query=title, match_title=True)
 
-    # find first link or element containing "Geciteerd door"
-    cite_elem = soup.find(string=re.compile(r"Geciteerd door \d+"))
+    citations = paper.citationCount
 
-    if cite_elem:
-        match = re.search(r"\d+", cite_elem)
-        if match:
-            citations = int(match.group())
-            return (citations)
-            
+    if citations is not None:
+        return citations
+
     return False
 
 def round(score, index):
