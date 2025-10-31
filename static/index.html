@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ePrint Guessr - Cryptography Paper Challenge</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="theme-toggle" id="theme-toggle" title="Toggle theme">
+        <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+        <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+        </svg>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>📜 ePrint Guessr</h1>
+            <p class="subtitle">Master the art of cryptography paper dating</p>
+            <div class="round-info">
+                <div class="round-badge">Round <span id="round-number">1</span></div>
+                <div class="score-badge">Rounds Played: <span id="rounds-played">0</span></div>
+                <div class="cache-badge" id="cache-badge" style="display: none;">⚡ <span id="cache-count">0</span> cached</div>
+            </div>
+        </header>
+
+        <div id="loading" class="loading-screen">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p>Fetching a cryptography masterpiece...</p>
+                <small>Processing PDF and extracting abstract</small>
+            </div>
+        </div>
+
+        <main id="game-container" class="game-layout" style="display: none;">
+            <div class="paper-section">
+                <div class="paper-frame">
+                    <div class="paper-label">Research Paper Preview</div>
+                    <div class="paper-display">
+                        <img id="paper-image" alt="Paper abstract" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="guess-section">
+                <div class="guess-card" id="guess-card">
+                    <h2>Your Detective Work</h2>
+                    <p class="hint">Analyze the title, abstract, and terminology to make your guess</p>
+                    
+                    <div class="input-wrapper">
+                        <label for="year-guess">
+                            <span class="label-icon">📅</span>
+                            <span>Publication Year</span>
+                        </label>
+                        <input type="number" id="year-guess" min="2000" max="2024" placeholder="2015" class="input-field">
+                        <small class="input-hint">Between 2000 and 2024</small>
+                    </div>
+
+                    <div class="input-wrapper">
+                        <label for="cite-guess">
+                            <span class="label-icon">📚</span>
+                            <span>Citation Count</span>
+                        </label>
+                        <input type="number" id="cite-guess" min="0" placeholder="150" class="input-field">
+                        <small class="input-hint">How influential is this paper?</small>
+                    </div>
+
+                    <button id="submit-btn" class="btn-primary">
+                        <span>Submit Your Guess</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="results-card" id="results-card" style="display: none;">
+                    <div class="results-header">
+                        <h2>Round Complete!</h2>
+                    </div>
+
+                    <div class="paper-info">
+                        <h3 id="result-title"></h3>
+                        <div class="paper-meta">
+                            <span class="meta-item">
+                                <strong>Year:</strong> <span id="result-year"></span>
+                            </span>
+                            <span class="meta-item">
+                                <strong>Citations:</strong> <span id="result-cites"></span>
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="feedback-section">
+                        <div class="feedback-item">
+                            <div class="feedback-label">
+                                <span class="feedback-icon">📅</span>
+                                Year Accuracy
+                            </div>
+                            <div class="feedback-value" id="year-feedback"></div>
+                        </div>
+
+                        <div class="feedback-item">
+                            <div class="feedback-label">
+                                <span class="feedback-icon">📚</span>
+                                Citation Accuracy
+                            </div>
+                            <div class="feedback-value" id="cite-feedback"></div>
+                        </div>
+                    </div>
+
+                    <div class="action-buttons">
+                        <a id="paper-link" href="#" target="_blank" class="btn-secondary">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                                <polyline points="15 3 21 3 21 9"></polyline>
+                                <line x1="10" y1="14" x2="21" y2="3"></line>
+                            </svg>
+                            View Paper
+                        </a>
+                        <button id="next-btn" class="btn-primary">
+                            <span>Next Challenge</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Papers sourced from <a href="https://eprint.iacr.org" target="_blank">IACR ePrint Archive</a></p>
+            <p>Inspired by the classics: <a href="https://www.geoguessr.com" target="_blank">Geoguessr</a> × <a href="https://redactle.net" target="_blank">Redactle</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
