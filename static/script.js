@@ -24,6 +24,8 @@ const gameContainer = document.getElementById('game-container');
 const paperImage = document.getElementById('paper-image');
 const yearGuess = document.getElementById('year-guess');
 const citeGuess = document.getElementById('cite-guess');
+const yearValue = document.getElementById('year-value');
+const citeValue = document.getElementById('cite-value');
 const submitBtn = document.getElementById('submit-btn');
 const guessCard = document.getElementById('guess-card');
 const resultsCard = document.getElementById('results-card');
@@ -39,6 +41,35 @@ const resultCites = document.getElementById('result-cites');
 const yearFeedback = document.getElementById('year-feedback');
 const citeFeedback = document.getElementById('cite-feedback');
 const paperLink = document.getElementById('paper-link');
+
+// Slider value update handlers with gradient background
+function updateSliderBackground(slider) {
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const value = parseFloat(slider.value);
+    const percentage = ((value - min) / (max - min)) * 100;
+    
+    slider.style.background = `linear-gradient(to right, 
+        var(--accent-color) 0%, 
+        var(--accent-color) ${percentage}%, 
+        var(--border-color) ${percentage}%, 
+        var(--border-color) 100%)`;
+}
+
+yearGuess.addEventListener('input', (e) => {
+    yearValue.textContent = e.target.value;
+    updateSliderBackground(e.target);
+});
+
+citeGuess.addEventListener('input', (e) => {
+    const value = parseInt(e.target.value);
+    citeValue.textContent = value >= 1000 ? '1000+' : value;
+    updateSliderBackground(e.target);
+});
+
+// Initialize slider backgrounds on load
+updateSliderBackground(yearGuess);
+updateSliderBackground(citeGuess);
 
 // Update cache stats
 async function updateCacheStats() {
@@ -66,9 +97,13 @@ async function loadNewPaper() {
     loading.style.display = 'block';
     gameContainer.style.display = 'none';
     
-    // Reset form
-    yearGuess.value = '';
-    citeGuess.value = '';
+    // Reset sliders to middle values
+    yearGuess.value = 2012;
+    citeGuess.value = 250;
+    yearValue.textContent = '2012';
+    citeValue.textContent = '250';
+    updateSliderBackground(yearGuess);
+    updateSliderBackground(citeGuess);
     guessCard.style.display = 'block';
     resultsCard.style.display = 'none';
     currentPaper = null;
@@ -183,16 +218,6 @@ async function submitGuess() {
     const yearGuessValue = parseInt(yearGuess.value);
     const citeGuessValue = parseInt(citeGuess.value);
     
-    if (isNaN(yearGuessValue) || yearGuessValue < 2000 || yearGuessValue > 2024) {
-        alert('Please enter a valid year between 2000 and 2024');
-        return;
-    }
-    
-    if (isNaN(citeGuessValue) || citeGuessValue < 0) {
-        alert('Please enter a valid number of citations (0 or more)');
-        return;
-    }
-    
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span>Evaluating...</span>';
     
@@ -236,8 +261,9 @@ function nextRound() {
 submitBtn.addEventListener('click', submitGuess);
 nextBtn.addEventListener('click', nextRound);
 
+// Allow Enter key on sliders to submit
 yearGuess.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') citeGuess.focus();
+    if (e.key === 'Enter') submitGuess();
 });
 
 citeGuess.addEventListener('keypress', (e) => {

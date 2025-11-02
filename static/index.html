@@ -62,18 +62,26 @@
                         <label for="year-guess">
                             <span class="label-icon">📅</span>
                             <span>Publication Year</span>
+                            <span class="value-display" id="year-value">2012</span>
                         </label>
-                        <input type="number" id="year-guess" min="2000" max="2024" placeholder="2015" class="input-field">
-                        <small class="input-hint">Between 2000 and 2024</small>
+                        <input type="range" id="year-guess" min="2000" max="2024" value="2012" class="slider" step="1">
+                        <div class="slider-labels">
+                            <span>2000</span>
+                            <span>2024</span>
+                        </div>
                     </div>
 
                     <div class="input-wrapper">
                         <label for="cite-guess">
                             <span class="label-icon">📚</span>
                             <span>Citation Count</span>
+                            <span class="value-display" id="cite-value">12</span>
                         </label>
-                        <input type="number" id="cite-guess" min="0" placeholder="150" class="input-field">
-                        <small class="input-hint">How influential is this paper?</small>
+                        <input type="range" id="cite-guess" min="0" max="300" value="10" class="slider" step="5">
+                        <div class="slider-labels">
+                            <span>0</span>
+                            <span>300+</span>
+                        </div>
                     </div>
 
                     <button id="submit-btn" class="btn-primary">
