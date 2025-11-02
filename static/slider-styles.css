@@ -1,6 +1,13 @@
-/* Slider Styles */
+
+:root {
+    --slider-height: 20px;           /* Height of the slider track (try 8px, 12px, 16px, 20px) */
+    --slider-thumb-size: 28px;       /* Size of the draggable circle (try 20px, 24px, 28px, 32px) */
+    --slider-thumb-border: 4px;      /* Border width around thumb */
+    --slider-spacing: 3rem;          /* Space between sliders */
+}
+
 .input-wrapper {
-    margin-bottom: 2rem;
+    margin-bottom: var(--slider-spacing);
 }
 
 .input-wrapper label {
@@ -31,9 +38,9 @@
 .slider {
     -webkit-appearance: none;
     appearance: none;
-    width: 100%;
-    height: 12px;
-    border-radius: 6px;
+    width: 120%;
+    height: var(--slider-height);
+    border-radius: calc(var(--slider-height) / 2);
     background: linear-gradient(to right, 
         var(--accent-color) 0%, 
         var(--accent-color) 50%, 
@@ -51,12 +58,12 @@
 .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 24px;
-    height: 24px;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     border-radius: 50%;
     background: var(--accent-color);
     cursor: pointer;
-    border: 3px solid white;
+    border: var(--slider-thumb-border) solid white;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     transition: all 0.2s ease;
 }
@@ -71,12 +78,12 @@
 }
 
 .slider::-moz-range-thumb {
-    width: 24px;
-    height: 24px;
+    width: var(--slider-thumb-size);
+    height: var(--slider-thumb-size);
     border-radius: 50%;
     background: var(--accent-color);
     cursor: pointer;
-    border: 3px solid white;
+    border: var(--slider-thumb-border) solid white;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     transition: all 0.2s ease;
 }
@@ -140,22 +147,14 @@
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
+    :root {
+        --slider-height: 10px;
+        --slider-thumb-size: 22px;
+        --slider-spacing: 1.5rem;
+    }
+    
     .value-display {
         font-size: 1.1rem;
         min-width: 55px;
-    }
-    
-    .slider {
-        height: 10px;
-    }
-    
-    .slider::-webkit-slider-thumb {
-        width: 22px;
-        height: 22px;
-    }
-    
-    .slider::-moz-range-thumb {
-        width: 22px;
-        height: 22px;
     }
 }
