@@ -18,17 +18,39 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import queue
 import logging
-app = Flask(__name__, static_folder='static')
-CORS(app)
 import urllib.parse
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Load .env file
+
+app = Flask(__name__, static_folder='static')
+CORS(app)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# SERPAPI CONFIGURATION
+# ============================================================================
+SERPAPI_KEY = os.getenv('SERPAPI_KEY', '')
+
+if not SERPAPI_KEY:
+    logger.warning("=" * 70)
+    logger.warning("⚠️  SERPAPI_KEY not found in .env file!")
+    logger.warning("⚠️  Citation lookup will fail.")
+    logger.warning("⚠️  Please create a .env file with: SERPAPI_KEY=your_key_here")
+    logger.warning("⚠️  Get your free key at: https://serpapi.com (250 searches/month)")
+    logger.warning("=" * 70)
+else:
+    logger.info("✅ SERPAPI_KEY loaded successfully")
 
 # HTTP session with retry logic
 def create_http_session():
@@ -55,8 +77,8 @@ padbot = 100
 CACHE_DIR = Path('.cache')
 CACHE_DIR.mkdir(exist_ok=True)
 PAPER_CACHE_FILE = CACHE_DIR / 'paper_cache.json'
-MAX_CACHE_SIZE = 2000  # Increased cache size
-WARM_CACHE_COUNT = 1000  # Pre-load more papers
+MAX_CACHE_SIZE = 100  # Increased cache size
+WARM_CACHE_COUNT = 100  # Pre-load more papers
 
 # Paper weights
 weights = {
@@ -84,9 +106,9 @@ def load_cache():
         try:
             with open(PAPER_CACHE_FILE, 'r') as f:
                 paper_cache = json.load(f)
-            print(f"✅ Loaded {len(paper_cache)} papers from cache")
+            logger.info(f"✅ Loaded {len(paper_cache)} papers from cache")
         except Exception as e:
-            print(f"Warning: Could not load cache: {e}")
+            logger.warning(f"Warning: Could not load cache: {e}")
             paper_cache = {}
 
 # Save cache to disk (async)
@@ -102,7 +124,7 @@ def save_cache():
         with open(PAPER_CACHE_FILE, 'w') as f:
             json.dump(cached_data, f)
     except Exception as e:
-        print(f"Warning: Could not save cache: {e}")
+        logger.warning(f"Warning: Could not save cache: {e}")
 
 def random_paper():
     """Select a random paper weighted by year"""
@@ -128,13 +150,6 @@ def get_title_cached(year, id):
     """Cached version of get_title"""
     return get_title(year, id)
 
-@lru_cache(maxsize=100)
-def get_cites_cached(title):
-    """Cached version of get_cites_semantic_scholar"""
-    if not title:
-        return None
-    return get_cites_semantic_scholar(title)
-
 def get_png(year, id):
     """Download and convert PDF first page to PNG with timeout"""
     url = f"https://eprint.iacr.org/{year}/{id:04d}.pdf"
@@ -155,7 +170,7 @@ def get_png(year, id):
         return None
     except requests.exceptions.RequestException as e:
         if '404' not in str(e):
-            print(f"Error getting PDF {year}/{id}: {e}")
+            logger.debug(f"Error getting PDF {year}/{id}: {e}")
         return None
     except Exception as e:
         return None
@@ -250,8 +265,72 @@ def get_title(year, id):
         pass
     return None
 
-def get_cites_semantic_scholar(title):
-    if not title: return 0
+def get_cites_google_scholar(title):
+    if not title:
+        return 0
+    
+    if not SERPAPI_KEY:
+        logger.error("⚠️ SERPAPI_KEY not configured - cannot get citations")
+        return 0
+    
+    try:
+        # SerpAPI Google Scholar endpoint
+        url = "https://serpapi.com/search"
+        
+        params = {
+            'engine': 'google_scholar',
+            'q': title,
+            'api_key': SERPAPI_KEY,
+            'num': 1,  # Only get first result
+            'hl': 'en'  # English results
+        }
+        
+        response = http_session.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Check for API errors
+        if 'error' in data:
+            logger.error(f"⚠️ SerpAPI error: {data['error']}")
+            return 0
+        
+        # Extract citation count from first organic result
+        if data.get('organic_results') and len(data['organic_results']) > 0:
+            first_result = data['organic_results'][0]
+            
+            # Navigate to citation count
+            if 'inline_links' in first_result:
+                inline_links = first_result['inline_links']
+                if 'cited_by' in inline_links:
+                    count = inline_links['cited_by'].get('total', 0)
+                    
+                    if count > 0:
+                        logger.info(f"📊 Google Scholar: {count} citations for: {title[:50]}...")
+                    else:
+                        logger.info(f"ℹ️ Paper found but no citations: {title[:50]}...")
+                    
+                    return count
+        
+        logger.info(f"ℹ️ No results found for: {title[:50]}...")
+        return 0
+        
+    except requests.exceptions.Timeout:
+        logger.warning(f"⚠️ Google Scholar API timeout for: {title[:40]}...")
+        return 0
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ Google Scholar API request error: {e}")
+        return 0
+    except Exception as e:
+        logger.warning(f"⚠️ Google Scholar API unexpected error: {e}")
+        return 0
+
+
+# OPTIONAL: Backup function using OpenAlex (lets keep as fallback)
+def get_cites_openalex(title):
+    """Get citation count from OpenAlex (backup option)"""
+    if not title:
+        return 0
+    
     try:
         encoded_title = urllib.parse.quote(title)
         url = f"https://api.openalex.org/works?filter=title.search:{encoded_title}&per_page=1"
@@ -259,37 +338,25 @@ def get_cites_semantic_scholar(title):
         response = http_session.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
         if data.get('results'):
             count = data['results'][0].get('cited_by_count', 0) or 0
             if count > 0:
-                 logger.info(f"📊 OpenAlex SUCCESS: Found {count} citations for title: {title[:40]}...")
+                logger.info(f"📊 OpenAlex: {count} citations for: {title[:40]}...")
             return count
         return 0
     except Exception as e:
-        logger.warning(f"⚠️ OpenAlex API error: {e}"); return 0
-    
-    # """Get citation count from Semantic Scholar API"""
-    # if not title:
-    #     return None
-    
-    # try:
-    #     search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-    #     params = {
-    #         "query": title,
-    #         "limit": 1,
-    #         "fields": "citationCount,title"
-    #     }
-        
-    #     response = requests.get(search_url, params=params, timeout=20)
-    #     time.sleep(2.5)
-    #     if response.status_code == 200:
-    #         data = response.json()
-    #         if data.get("data") and len(data["data"]) > 0:
-    #             return data["data"][0].get("citationCount", 0)
-    # except:
-    #     pass
-    
-    # return None
+        logger.warning(f"⚠️ OpenAlex API error: {e}")
+        return 0
+
+
+@lru_cache(maxsize=100)
+def get_cites_cached(title):
+    """Cached version of get_cites_google_scholar"""
+    if not title:
+        return None
+    return get_cites_google_scholar(title)
+
 
 def process_paper(year, id):
     """Process a single paper - returns paper data or None"""
@@ -355,7 +422,7 @@ def get_random_paper():
             cache_keys = list(paper_cache.keys())
             cache_key = random.choice(cache_keys)
             cached_paper = paper_cache[cache_key].copy()
-            print(f"⚡ Cache hit: {cache_key} (cache size: {len(paper_cache)})")
+            logger.info(f"⚡ Cache hit: {cache_key} (cache size: {len(paper_cache)})")
             
             # Trigger background cache warming
             if not is_warming.is_set():
@@ -376,7 +443,7 @@ def get_random_paper():
         # Check cache again
         with cache_lock:
             if cache_key in paper_cache:
-                print(f"⚡ Cache hit: {cache_key}")
+                logger.info(f"⚡ Cache hit: {cache_key}")
                 return jsonify({
                     'success': True,
                     **paper_cache[cache_key]
@@ -392,7 +459,7 @@ def get_random_paper():
                 # Async save
                 threading.Thread(target=save_cache, daemon=True).start()
             
-            print(f"✅ Processed & cached: {year}/{id}")
+            logger.info(f"✅ Processed & cached: {year}/{id}")
             
             # Start background warming if not already running
             if not is_warming.is_set():
@@ -441,7 +508,7 @@ def warm_cache_background():
         return
     
     is_warming.set()
-    print("🔥 Background cache warming started...")
+    logger.info("🔥 Background cache warming started...")
     
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -459,12 +526,12 @@ def warm_cache_background():
                     if paper_data:
                         with cache_lock:
                             paper_cache[cache_key] = paper_data
-                        print(f"✅ Background cached: {cache_key} ({len(paper_cache)}/{WARM_CACHE_COUNT})")
+                        logger.info(f"✅ Background cached: {cache_key} ({len(paper_cache)}/{WARM_CACHE_COUNT})")
                 except:
                     pass
         
         save_cache()
-        print(f"✅ Cache warmed! {len(paper_cache)} papers ready")
+        logger.info(f"✅ Cache warmed! {len(paper_cache)} papers ready")
     finally:
         is_warming.clear()
 
