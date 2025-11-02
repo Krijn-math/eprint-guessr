@@ -17,9 +17,29 @@ from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import queue
-
+import logging
 app = Flask(__name__, static_folder='static')
 CORS(app)
+import urllib.parse
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# HTTP session with retry logic
+def create_http_session():
+    sess = requests.Session()
+    retry = Retry(total=2, backoff_factor=0.3, status_forcelist=[500, 502, 503, 504])
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=20)
+    sess.mount('http://', adapter)
+    sess.mount('https://', adapter)
+    return sess
+
+http_session = create_http_session()
 
 # Configuration
 zoom = 2.0
@@ -35,8 +55,8 @@ padbot = 100
 CACHE_DIR = Path('.cache')
 CACHE_DIR.mkdir(exist_ok=True)
 PAPER_CACHE_FILE = CACHE_DIR / 'paper_cache.json'
-MAX_CACHE_SIZE = 200  # Increased cache size
-WARM_CACHE_COUNT = 20  # Pre-load more papers
+MAX_CACHE_SIZE = 2000  # Increased cache size
+WARM_CACHE_COUNT = 1000  # Pre-load more papers
 
 # Paper weights
 weights = {
@@ -231,27 +251,45 @@ def get_title(year, id):
     return None
 
 def get_cites_semantic_scholar(title):
-    """Get citation count from Semantic Scholar API"""
-    if not title:
-        return None
-    
+    if not title: return 0
     try:
-        search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-        params = {
-            "query": title,
-            "limit": 1,
-            "fields": "citationCount,title"
-        }
-        
-        response = requests.get(search_url, params=params, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("data") and len(data["data"]) > 0:
-                return data["data"][0].get("citationCount", 0)
-    except:
-        pass
+        encoded_title = urllib.parse.quote(title)
+        url = f"https://api.openalex.org/works?filter=title.search:{encoded_title}&per_page=1"
+        headers = {'User-Agent': 'PaperGuesser/1.0 (mailto:youremail@example.com)'}
+        response = http_session.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data.get('results'):
+            count = data['results'][0].get('cited_by_count', 0) or 0
+            if count > 0:
+                 logger.info(f"📊 OpenAlex SUCCESS: Found {count} citations for title: {title[:40]}...")
+            return count
+        return 0
+    except Exception as e:
+        logger.warning(f"⚠️ OpenAlex API error: {e}"); return 0
     
-    return None
+    # """Get citation count from Semantic Scholar API"""
+    # if not title:
+    #     return None
+    
+    # try:
+    #     search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+    #     params = {
+    #         "query": title,
+    #         "limit": 1,
+    #         "fields": "citationCount,title"
+    #     }
+        
+    #     response = requests.get(search_url, params=params, timeout=20)
+    #     time.sleep(2.5)
+    #     if response.status_code == 200:
+    #         data = response.json()
+    #         if data.get("data") and len(data["data"]) > 0:
+    #             return data["data"][0].get("citationCount", 0)
+    # except:
+    #     pass
+    
+    # return None
 
 def process_paper(year, id):
     """Process a single paper - returns paper data or None"""
