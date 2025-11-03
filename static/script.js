@@ -12,6 +12,17 @@ themeToggle.addEventListener('click', () => {
     localStorage.setItem('theme', theme);
 });
 
+
+function sliderToCitations(sliderValue) {
+    const citations = Math.round((Math.exp(sliderValue / 20) - 1) * 10);
+    return Math.min(citations, 10000); // Cap at 10k
+}
+
+function citationsToSlider(citations) {
+    // Inverse: sliderValue = 20 * ln((citations/10) + 1)
+    return Math.round(20 * Math.log((citations / 10) + 1));
+}
+
 // Game state
 let currentPaper = null;
 let roundNumber = 1;
@@ -68,8 +79,9 @@ yearGuess.addEventListener('input', (e) => {
 });
 
 citeGuess.addEventListener('input', (e) => {
-    const value = parseInt(e.target.value);
-    citeValue.textContent = value >= 1000 ? '1000+' : value;
+    const sliderValue = parseInt(e.target.value);
+    const citations = sliderToCitations(sliderValue);
+    citeValue.textContent = citations >= 1000 ? `${(citations / 1000).toFixed(1)}k` : citations;
     updateSliderBackground(e.target);
 });
 
@@ -105,9 +117,10 @@ async function loadNewPaper() {
     
     // Reset sliders to middle values
     yearGuess.value = 2012;
-    citeGuess.value = 250;
+    citeGuess.value = 50; // Slider value (maps to ~20 citations)
     yearValue.textContent = '2012';
-    citeValue.textContent = '250';
+    const defaultCitations = sliderToCitations(50);
+    citeValue.textContent = defaultCitations;
     updateSliderBackground(yearGuess);
     updateSliderBackground(citeGuess);
     guessCard.style.display = 'block';
@@ -223,7 +236,8 @@ async function submitGuess() {
     }
     
     const yearGuessValue = parseInt(yearGuess.value);
-    const citeGuessValue = parseInt(citeGuess.value);
+    const citeSliderValue = parseInt(citeGuess.value);
+    const citeGuessValue = sliderToCitations(citeSliderValue); // Convert slider to actual citations
     
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span>Calculating Score...</span>';
