@@ -500,11 +500,6 @@ def get_cites_cached(title):
     result = get_cites_with_fallback(title)
     return result if result is not None else 0
 
-
-# ============================================================================
-# PAPER PROCESSING
-# ============================================================================
-
 def process_paper(year, id):
     """Process a single paper - returns paper data or None"""
     pix = get_png(year, id)
@@ -534,29 +529,32 @@ def process_paper(year, id):
     }
 
 def calculate_score(year_guess, cite_guess, actual_year, actual_cites):
-    """Calculate score based on guesses"""
+    """Calculate score based on guesses using improved citation scoring"""
     year_dist = abs(year_guess - actual_year)
     
+    # Year scoring (unchanged)
     penalty = {0: 0, 1: 100, 2: 500, 3: 1000, 4: 2000, 5: 4000}
     if year_dist <= 5:
         year_score = 5000 - penalty[year_dist]
     else:
         year_score = max(0, 5000 - (year_dist - 5) * 1000)
     
+    # Citation scoring with improved algorithm
+    # Handles low citation counts better by adding bonus to both values
     if actual_cites == 0 and cite_guess == 0:
         cite_score = 5000
     else:
-        log_actual = log(actual_cites + 1)
-        log_guess = log(cite_guess + 1)
-        log_diff = abs(log_actual - log_guess)
-        cite_score = max(0, int(5000 - log_diff * 800))
+        # Sanitize guess (prevent negative values)
+        sanitized_guess = max(0, cite_guess)
+        
+        # Calculate logarithmic error with bonus to handle low citation counts better
+        # Adding 20 to both values prevents issues with log(0) and gives better scores for low citations
+        error = abs(log(sanitized_guess + 20, 2) - log(actual_cites + 20, 2))
+        penalty_factor = 1500
+        cite_score = max(0, int(5000 - penalty_factor * error))
     
     return year_score, cite_score
 
-
-# ============================================================================
-# API ROUTES
-# ============================================================================
 
 @app.route('/')
 def index():
@@ -690,10 +688,6 @@ def warm_cache_background():
     finally:
         is_warming.clear()
 
-
-# ============================================================================
-# STARTUP
-# ============================================================================
 
 # Load cache on startup
 load_cache()

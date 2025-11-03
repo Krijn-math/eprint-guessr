@@ -16,6 +16,8 @@ themeToggle.addEventListener('click', () => {
 let currentPaper = null;
 let roundNumber = 1;
 let roundsPlayed = 0;
+let totalScore = 0;
+let roundScores = []; // Track individual round scores
 let isLoading = false;
 
 // DOM elements
@@ -35,11 +37,15 @@ const cacheCount = document.getElementById('cache-count');
 
 const roundNumberDisplay = document.getElementById('round-number');
 const roundsPlayedDisplay = document.getElementById('rounds-played');
+const totalScoreDisplay = document.getElementById('total-score');
 const resultTitle = document.getElementById('result-title');
 const resultYear = document.getElementById('result-year');
 const resultCites = document.getElementById('result-cites');
 const yearFeedback = document.getElementById('year-feedback');
 const citeFeedback = document.getElementById('cite-feedback');
+const yearScoreDisplay = document.getElementById('year-score');
+const citeScoreDisplay = document.getElementById('cite-score');
+const roundScoreDisplay = document.getElementById('round-score');
 const paperLink = document.getElementById('paper-link');
 
 // Slider value update handlers with gradient background
@@ -145,6 +151,7 @@ async function loadNewPaper() {
                 gameContainer.style.display = 'grid';
                 roundNumberDisplay.textContent = roundNumber;
                 roundsPlayedDisplay.textContent = roundsPlayed;
+                totalScoreDisplay.textContent = totalScore.toLocaleString();
                 
                 // Update cache stats
                 updateCacheStats();
@@ -219,21 +226,63 @@ async function submitGuess() {
     const citeGuessValue = parseInt(citeGuess.value);
     
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Evaluating...</span>';
+    submitBtn.innerHTML = '<span>Calculating Score...</span>';
     
     try {
+        // Get scores from backend
+        const response = await fetch('/api/submit-guess', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                year_guess: yearGuessValue,
+                cite_guess: citeGuessValue,
+                actual_year: currentPaper.year,
+                actual_cites: currentPaper.cites
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to calculate score');
+        }
+        
+        const scoreData = await response.json();
+        const yearScore = scoreData.year_score;
+        const citeScore = scoreData.cite_score;
+        const roundScore = scoreData.total_score;
+        
+        // Update cumulative score
+        totalScore += roundScore;
+        roundScores.push({
+            round: roundNumber,
+            yearScore: yearScore,
+            citeScore: citeScore,
+            totalScore: roundScore,
+            paper: currentPaper.title
+        });
+        
+        // Get feedback text
         const yearFeedbackText = getYearFeedback(yearGuessValue, currentPaper.year);
         const citeFeedbackText = getCitationFeedback(citeGuessValue, currentPaper.cites);
         
+        // Display results
         resultTitle.textContent = currentPaper.title;
         resultYear.textContent = currentPaper.year;
         resultCites.textContent = currentPaper.cites.toLocaleString();
         yearFeedback.textContent = yearFeedbackText;
         citeFeedback.textContent = citeFeedbackText;
+        
+        // Display scores
+        yearScoreDisplay.textContent = yearScore.toLocaleString();
+        citeScoreDisplay.textContent = citeScore.toLocaleString();
+        roundScoreDisplay.textContent = roundScore.toLocaleString();
+        
         paperLink.href = `https://eprint.iacr.org/${currentPaper.year}/${String(currentPaper.id).padStart(4, '0')}`;
         
         roundsPlayed++;
         roundsPlayedDisplay.textContent = roundsPlayed;
+        totalScoreDisplay.textContent = totalScore.toLocaleString();
         
         guessCard.style.display = 'none';
         resultsCard.style.display = 'block';
@@ -244,7 +293,7 @@ async function submitGuess() {
         
     } catch (error) {
         console.error('Error:', error);
-        alert('Error calculating feedback. Please try again.');
+        alert('Error calculating score. Please try again.');
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<span>Submit Your Guess</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -255,6 +304,16 @@ function nextRound() {
     console.log('Next round clicked');
     roundNumber++;
     loadNewPaper();
+}
+
+function resetGame() {
+    if (confirm('Are you sure you want to reset your score and start over?')) {
+        roundNumber = 1;
+        roundsPlayed = 0;
+        totalScore = 0;
+        roundScores = [];
+        loadNewPaper();
+    }
 }
 
 // Event listeners

@@ -30,7 +30,8 @@
             <p class="subtitle">Master the art of cryptography paper dating</p>
             <div class="round-info">
                 <div class="round-badge">Round <span id="round-number">1</span></div>
-                <div class="score-badge">Rounds Played: <span id="rounds-played">0</span></div>
+                <div class="score-badge">Rounds: <span id="rounds-played">0</span></div>
+                <div class="score-badge total-score">Total: <span id="total-score">0</span></div>
                 <div class="cache-badge" id="cache-badge" style="display: none;">⚡ <span id="cache-count">0</span> cached</div>
             </div>
         </header>
@@ -75,12 +76,12 @@
                         <label for="cite-guess">
                             <span class="label-icon">📚</span>
                             <span>Citation Count</span>
-                            <span class="value-display" id="cite-value">12</span>
+                            <span class="value-display" id="cite-value">250</span>
                         </label>
-                        <input type="range" id="cite-guess" min="0" max="300" value="10" class="slider" step="5">
+                        <input type="range" id="cite-guess" min="0" max="1000" value="250" class="slider" step="10">
                         <div class="slider-labels">
                             <span>0</span>
-                            <span>300+</span>
+                            <span>1000+</span>
                         </div>
                     </div>
 
@@ -106,6 +107,24 @@
                             <span class="meta-item">
                                 <strong>Citations:</strong> <span id="result-cites"></span>
                             </span>
+                        </div>
+                    </div>
+
+                    <div class="score-section">
+                        <h3>Your Score</h3>
+                        <div class="score-breakdown">
+                            <div class="score-item">
+                                <span class="score-label">📅 Year Score:</span>
+                                <span class="score-value" id="year-score">0</span>
+                            </div>
+                            <div class="score-item">
+                                <span class="score-label">📚 Citation Score:</span>
+                                <span class="score-value" id="cite-score">0</span>
+                            </div>
+                            <div class="score-item total">
+                                <span class="score-label">🎯 Round Total:</span>
+                                <span class="score-value" id="round-score">0</span>
+                            </div>
                         </div>
                     </div>
 
