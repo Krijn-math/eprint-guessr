@@ -320,6 +320,15 @@ def process_paper(year, id):
         'image': f'data:image/png;base64,{img_base64}'
     }
 
+def cite_scores(cite_guess, actual_cites):
+    sanitize_guess = min(0, cite_guess)     #otherwise Jannik will mess with us with -10 citations
+    error = abs(log(sanitize_guess + 20, 2) - log(actual_cites + 20, 2)).n()
+    penalty = 1500
+    score = min(0, 5000 - penalty*error)
+    
+    return score
+
+
 def calculate_score(year_guess, cite_guess, actual_year, actual_cites):
     """Calculate score based on guesses"""
     year_dist = abs(year_guess - actual_year)
@@ -333,10 +342,7 @@ def calculate_score(year_guess, cite_guess, actual_year, actual_cites):
     if actual_cites == 0 and cite_guess == 0:
         cite_score = 5000
     else:
-        log_actual = log(actual_cites + 1)
-        log_guess = log(cite_guess + 1)
-        log_diff = abs(log_actual - log_guess)
-        cite_score = max(0, int(5000 - log_diff * 800))
+        cite_score = cite_scores(cite_guess, actual_cites)
     
     return year_score, cite_score
 
