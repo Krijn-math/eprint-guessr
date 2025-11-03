@@ -183,8 +183,8 @@ async function submitGuess() {
     const yearGuessValue = parseInt(yearGuess.value);
     const citeGuessValue = parseInt(citeGuess.value);
     
-    if (isNaN(yearGuessValue) || yearGuessValue < 2000 || yearGuessValue > 2024) {
-        alert('Please enter a valid year between 2000 and 2024');
+    if (isNaN(yearGuessValue) || yearGuessValue < 2000 || yearGuessValue > 2025) {
+        alert('Please enter a valid year between 2000 and 2025');
         return;
     }
     
