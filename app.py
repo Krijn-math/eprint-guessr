@@ -38,19 +38,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# SERPAPI CONFIGURATION
+# API CONFIGURATION
 # ============================================================================
+SCRAPINGDOG_API_KEY = os.getenv('SCRAPINGDOG_API_KEY', '')
 SERPAPI_KEY = os.getenv('SERPAPI_KEY', '')
 
-if not SERPAPI_KEY:
+if not SCRAPINGDOG_API_KEY:
     logger.warning("=" * 70)
-    logger.warning("⚠️  SERPAPI_KEY not found in .env file!")
-    logger.warning("⚠️  Citation lookup will fail.")
-    logger.warning("⚠️  Please create a .env file with: SERPAPI_KEY=your_key_here")
-    logger.warning("⚠️  Get your free key at: https://serpapi.com (250 searches/month)")
+    logger.warning("⚠️  SCRAPINGDOG_API_KEY not found in .env file!")
+    logger.warning("⚠️  Citation lookup will use backup services.")
+    logger.warning("⚠️  Please create a .env file with: SCRAPINGDOG_API_KEY=your_key_here")
+    logger.warning("⚠️  Get your key at: https://www.scrapingdog.com")
     logger.warning("=" * 70)
 else:
-    logger.info("✅ SERPAPI_KEY loaded successfully")
+    logger.info("✅ SCRAPINGDOG_API_KEY loaded successfully")
+
+if not SERPAPI_KEY:
+    logger.warning("⚠️  SERPAPI_KEY not found - will not be available as backup")
+else:
+    logger.info("✅ SERPAPI_KEY loaded successfully (backup)")
 
 # HTTP session with retry logic
 def create_http_session():
@@ -77,8 +83,8 @@ padbot = 100
 CACHE_DIR = Path('.cache')
 CACHE_DIR.mkdir(exist_ok=True)
 PAPER_CACHE_FILE = CACHE_DIR / 'paper_cache.json'
-MAX_CACHE_SIZE = 100  # Increased cache size
-WARM_CACHE_COUNT = 100  # Pre-load more papers
+MAX_CACHE_SIZE = 500  # Increased cache size
+WARM_CACHE_COUNT = 500  # Pre-load more papers
 
 # Paper weights
 weights = {
@@ -265,21 +271,124 @@ def get_title(year, id):
         pass
     return None
 
+
+# ============================================================================
+# CITATION LOOKUP FUNCTIONS
+# ============================================================================
+
+def normalize_title_for_search(title):
+    """Normalize paper title for better search matching"""
+    if not title:
+        return title
+    
+    import re
+    
+    # Remove special characters that break searches
+    title = re.sub(r'[^\w\s\-:]', ' ', title)
+    
+    # Remove extra whitespace
+    title = ' '.join(title.split())
+    
+    # Truncate very long titles (keep first ~100 chars at word boundary)
+    if len(title) > 100:
+        title = title[:100].rsplit(' ', 1)[0]
+    
+    return title.strip()
+
+
+def get_cites_scrapingdog(title):
+    """Get citation count from Scrapingdog Google Scholar API (PRIMARY)"""
+    if not title:
+        return 0
+    
+    if not SCRAPINGDOG_API_KEY:
+        logger.debug("⚠️ SCRAPINGDOG_API_KEY not configured - skipping")
+        return 0
+    
+    try:
+        # Normalize title for better matching
+        search_title = normalize_title_for_search(title)
+        
+        # Scrapingdog Google Scholar search endpoint
+        url = "https://api.scrapingdog.com/google_scholar"
+        
+        params = {
+            'api_key': SCRAPINGDOG_API_KEY,
+            'query': search_title,
+            'results': 1  # Only get first result
+        }
+        
+        response = http_session.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Check for API errors
+        if 'error' in data:
+            logger.error(f"⚠️ Scrapingdog error: {data['error']}")
+            return 0
+        
+        # Extract citation count from first organic result
+        if data.get('organic_results') and len(data['organic_results']) > 0:
+            first_result = data['organic_results'][0]
+            
+            # Scrapingdog returns citation info in the result
+            # Check multiple possible locations for citation count
+            cite_count = 0
+            
+            # Method 1: Direct cited_by field
+            if 'cited_by' in first_result:
+                cite_count = first_result['cited_by']
+            # Method 2: inline_links structure (similar to SerpAPI)
+            elif 'inline_links' in first_result and 'cited_by' in first_result['inline_links']:
+                cited_by_info = first_result['inline_links']['cited_by']
+                if isinstance(cited_by_info, dict):
+                    cite_count = cited_by_info.get('total', 0) or cited_by_info.get('count', 0)
+                else:
+                    cite_count = cited_by_info
+            # Method 3: citation_count field
+            elif 'citation_count' in first_result:
+                cite_count = first_result['citation_count']
+            
+            if cite_count > 0:
+                logger.info(f"📊 Scrapingdog: {cite_count} citations for: {title[:50]}...")
+            else:
+                logger.info(f"ℹ️ Paper found but no citations: {title[:50]}...")
+            
+            return int(cite_count) if cite_count else 0
+        
+        logger.info(f"ℹ️ No results found for: {title[:50]}...")
+        return 0
+        
+    except requests.exceptions.Timeout:
+        logger.warning(f"⚠️ Scrapingdog API timeout for: {title[:40]}...")
+        return 0
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ Scrapingdog API request error: {e}")
+        return 0
+    except Exception as e:
+        logger.warning(f"⚠️ Scrapingdog API unexpected error: {e}")
+        return 0
+
+
 def get_cites_google_scholar(title):
+    """Get citation count from SerpAPI Google Scholar (BACKUP)"""
     if not title:
         return 0
     
     if not SERPAPI_KEY:
-        logger.error("⚠️ SERPAPI_KEY not configured - cannot get citations")
+        logger.debug("⚠️ SERPAPI_KEY not configured - skipping backup")
         return 0
     
     try:
+        # Normalize title for better matching
+        search_title = normalize_title_for_search(title)
+        
         # SerpAPI Google Scholar endpoint
         url = "https://serpapi.com/search"
         
         params = {
             'engine': 'google_scholar',
-            'q': title,
+            'q': search_title,
             'api_key': SERPAPI_KEY,
             'num': 1,  # Only get first result
             'hl': 'en'  # English results
@@ -305,7 +414,7 @@ def get_cites_google_scholar(title):
                     count = inline_links['cited_by'].get('total', 0)
                     
                     if count > 0:
-                        logger.info(f"📊 Google Scholar: {count} citations for: {title[:50]}...")
+                        logger.info(f"📊 SerpAPI (backup): {count} citations for: {title[:50]}...")
                     else:
                         logger.info(f"ℹ️ Paper found but no citations: {title[:50]}...")
                     
@@ -315,19 +424,18 @@ def get_cites_google_scholar(title):
         return 0
         
     except requests.exceptions.Timeout:
-        logger.warning(f"⚠️ Google Scholar API timeout for: {title[:40]}...")
+        logger.warning(f"⚠️ SerpAPI timeout for: {title[:40]}...")
         return 0
     except requests.exceptions.RequestException as e:
-        logger.warning(f"⚠️ Google Scholar API request error: {e}")
+        logger.warning(f"⚠️ SerpAPI request error: {e}")
         return 0
     except Exception as e:
-        logger.warning(f"⚠️ Google Scholar API unexpected error: {e}")
+        logger.warning(f"⚠️ SerpAPI unexpected error: {e}")
         return 0
 
 
-# OPTIONAL: Backup function using OpenAlex (lets keep as fallback)
 def get_cites_openalex(title):
-    """Get citation count from OpenAlex (backup option)"""
+    """Get citation count from OpenAlex (FALLBACK)"""
     if not title:
         return 0
     
@@ -342,7 +450,7 @@ def get_cites_openalex(title):
         if data.get('results'):
             count = data['results'][0].get('cited_by_count', 0) or 0
             if count > 0:
-                logger.info(f"📊 OpenAlex: {count} citations for: {title[:40]}...")
+                logger.info(f"📊 OpenAlex (fallback): {count} citations for: {title[:40]}...")
             return count
         return 0
     except Exception as e:
@@ -350,13 +458,52 @@ def get_cites_openalex(title):
         return 0
 
 
+def get_cites_with_fallback(title):
+    """
+    Get citation count with fallback chain:
+    1. Try Scrapingdog (primary)
+    2. Try SerpAPI (backup)
+    3. Try OpenAlex (fallback)
+    4. If all fail, return 0 (paper likely not indexed)
+    """
+    if not title:
+        return 0
+    
+    # Try Scrapingdog first
+    if SCRAPINGDOG_API_KEY:
+        cites = get_cites_scrapingdog(title)
+        if cites is not None and cites >= 0:
+            return cites
+    
+    # Fallback to SerpAPI
+    if SERPAPI_KEY:
+        cites = get_cites_google_scholar(title)
+        if cites is not None and cites >= 0:
+            return cites
+    
+    # Last resort: OpenAlex
+    cites = get_cites_openalex(title)
+    if cites is not None and cites >= 0:
+        return cites
+    
+    # Paper not found in any database - this is OK for newer/niche papers
+    # Return 0 instead of None to allow the paper to be processed
+    logger.debug(f"Paper not found in any database (returning 0): {title[:60]}...")
+    return 0
+
+
 @lru_cache(maxsize=100)
 def get_cites_cached(title):
-    """Cached version of get_cites_google_scholar"""
+    """Cached version of get_cites_with_fallback - always returns int"""
     if not title:
-        return None
-    return get_cites_google_scholar(title)
+        return 0
+    result = get_cites_with_fallback(title)
+    return result if result is not None else 0
 
+
+# ============================================================================
+# PAPER PROCESSING
+# ============================================================================
 
 def process_paper(year, id):
     """Process a single paper - returns paper data or None"""
@@ -370,9 +517,8 @@ def process_paper(year, id):
     if not title:
         return None
     
+    # Get citations - returns 0 for papers not in databases (always succeeds)
     cites = get_cites_cached(title)
-    if cites is None:
-        return None
     
     img_buffer = io.BytesIO()
     cropped.save(img_buffer, format='PNG', optimize=True)
@@ -406,6 +552,11 @@ def calculate_score(year_guess, cite_guess, actual_year, actual_cites):
         cite_score = max(0, int(5000 - log_diff * 800))
     
     return year_score, cite_score
+
+
+# ============================================================================
+# API ROUTES
+# ============================================================================
 
 @app.route('/')
 def index():
@@ -501,7 +652,11 @@ def cache_stats():
             'is_warming': is_warming.is_set()
         })
 
-# Background cache warmer
+
+# ============================================================================
+# BACKGROUND CACHE WARMING
+# ============================================================================
+
 def warm_cache_background():
     """Continuously warm cache in background"""
     if is_warming.is_set():
@@ -534,6 +689,11 @@ def warm_cache_background():
         logger.info(f"✅ Cache warmed! {len(paper_cache)} papers ready")
     finally:
         is_warming.clear()
+
+
+# ============================================================================
+# STARTUP
+# ============================================================================
 
 # Load cache on startup
 load_cache()
