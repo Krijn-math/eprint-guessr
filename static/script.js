@@ -15,7 +15,7 @@ themeToggle.addEventListener('click', () => {
 
 function sliderToCitations(sliderValue) {
     const citations = Math.round((Math.exp(sliderValue / 20) - 1) * 10);
-    return Math.min(citations, 10000); // Cap at 10k
+    return Math.min(citations, 1000); // Cap at 1k
 }
 
 function citationsToSlider(citations) {
@@ -81,7 +81,8 @@ yearGuess.addEventListener('input', (e) => {
 citeGuess.addEventListener('input', (e) => {
     const sliderValue = parseInt(e.target.value);
     const citations = sliderToCitations(sliderValue);
-    citeValue.textContent = citations >= 1000 ? `${(citations / 1000).toFixed(1)}k` : citations;
+    // citeValue.textContent = citations >= 1000 ? `${(citations / 1000).toFixed(1)}k` : citations;
+    citeValue.textContent = citations >= 1000 ? `1000+` : citations;
     updateSliderBackground(e.target);
 });
 
