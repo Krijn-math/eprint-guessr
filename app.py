@@ -18,17 +18,45 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import queue
 import logging
-app = Flask(__name__, static_folder='static')
-CORS(app)
 import urllib.parse
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Load .env file
+
+app = Flask(__name__, static_folder='static')
+CORS(app)
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# API CONFIGURATION
+# ============================================================================
+SCRAPINGDOG_API_KEY = os.getenv('SCRAPINGDOG_API_KEY', '')
+SERPAPI_KEY = os.getenv('SERPAPI_KEY', '')
+
+if not SCRAPINGDOG_API_KEY:
+    logger.warning("=" * 70)
+    logger.warning("⚠️  SCRAPINGDOG_API_KEY not found in .env file!")
+    logger.warning("⚠️  Citation lookup will use backup services.")
+    logger.warning("⚠️  Please create a .env file with: SCRAPINGDOG_API_KEY=your_key_here")
+    logger.warning("⚠️  Get your key at: https://www.scrapingdog.com")
+    logger.warning("=" * 70)
+else:
+    logger.info("✅ SCRAPINGDOG_API_KEY loaded successfully")
+
+if not SERPAPI_KEY:
+    logger.warning("⚠️  SERPAPI_KEY not found - will not be available as backup")
+else:
+    logger.info("✅ SERPAPI_KEY loaded successfully (backup)")
 
 # HTTP session with retry logic
 def create_http_session():
@@ -55,8 +83,8 @@ padbot = 100
 CACHE_DIR = Path('.cache')
 CACHE_DIR.mkdir(exist_ok=True)
 PAPER_CACHE_FILE = CACHE_DIR / 'paper_cache.json'
-MAX_CACHE_SIZE = 2000  # Increased cache size
-WARM_CACHE_COUNT = 1000  # Pre-load more papers
+MAX_CACHE_SIZE = 500  # Increased cache size
+WARM_CACHE_COUNT = 500  # Pre-load more papers
 
 # Paper weights
 weights = {
@@ -84,9 +112,9 @@ def load_cache():
         try:
             with open(PAPER_CACHE_FILE, 'r') as f:
                 paper_cache = json.load(f)
-            print(f"✅ Loaded {len(paper_cache)} papers from cache")
+            logger.info(f"✅ Loaded {len(paper_cache)} papers from cache")
         except Exception as e:
-            print(f"Warning: Could not load cache: {e}")
+            logger.warning(f"Warning: Could not load cache: {e}")
             paper_cache = {}
 
 # Save cache to disk (async)
@@ -102,7 +130,7 @@ def save_cache():
         with open(PAPER_CACHE_FILE, 'w') as f:
             json.dump(cached_data, f)
     except Exception as e:
-        print(f"Warning: Could not save cache: {e}")
+        logger.warning(f"Warning: Could not save cache: {e}")
 
 def random_paper():
     """Select a random paper weighted by year"""
@@ -128,13 +156,6 @@ def get_title_cached(year, id):
     """Cached version of get_title"""
     return get_title(year, id)
 
-@lru_cache(maxsize=100)
-def get_cites_cached(title):
-    """Cached version of get_cites_semantic_scholar"""
-    if not title:
-        return None
-    return get_cites_semantic_scholar(title)
-
 def get_png(year, id):
     """Download and convert PDF first page to PNG with timeout"""
     url = f"https://eprint.iacr.org/{year}/{id:04d}.pdf"
@@ -155,7 +176,7 @@ def get_png(year, id):
         return None
     except requests.exceptions.RequestException as e:
         if '404' not in str(e):
-            print(f"Error getting PDF {year}/{id}: {e}")
+            logger.debug(f"Error getting PDF {year}/{id}: {e}")
         return None
     except Exception as e:
         return None
@@ -250,8 +271,174 @@ def get_title(year, id):
         pass
     return None
 
-def get_cites_semantic_scholar(title):
-    if not title: return 0
+
+# ============================================================================
+# CITATION LOOKUP FUNCTIONS
+# ============================================================================
+
+def normalize_title_for_search(title):
+    """Normalize paper title for better search matching"""
+    if not title:
+        return title
+    
+    import re
+    
+    # Remove special characters that break searches
+    title = re.sub(r'[^\w\s\-:]', ' ', title)
+    
+    # Remove extra whitespace
+    title = ' '.join(title.split())
+    
+    # Truncate very long titles (keep first ~100 chars at word boundary)
+    if len(title) > 100:
+        title = title[:100].rsplit(' ', 1)[0]
+    
+    return title.strip()
+
+
+def get_cites_scrapingdog(title):
+    """Get citation count from Scrapingdog Google Scholar API (PRIMARY)"""
+    if not title:
+        return 0
+    
+    if not SCRAPINGDOG_API_KEY:
+        logger.debug("⚠️ SCRAPINGDOG_API_KEY not configured - skipping")
+        return 0
+    
+    try:
+        # Normalize title for better matching
+        search_title = normalize_title_for_search(title)
+        
+        # Scrapingdog Google Scholar search endpoint
+        url = "https://api.scrapingdog.com/google_scholar"
+        
+        params = {
+            'api_key': SCRAPINGDOG_API_KEY,
+            'query': search_title,
+            'results': 1  # Only get first result
+        }
+        
+        response = http_session.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Check for API errors
+        if 'error' in data:
+            logger.error(f"⚠️ Scrapingdog error: {data['error']}")
+            return 0
+        
+        # Extract citation count from first organic result
+        if data.get('organic_results') and len(data['organic_results']) > 0:
+            first_result = data['organic_results'][0]
+            
+            # Scrapingdog returns citation info in the result
+            # Check multiple possible locations for citation count
+            cite_count = 0
+            
+            # Method 1: Direct cited_by field
+            if 'cited_by' in first_result:
+                cite_count = first_result['cited_by']
+            # Method 2: inline_links structure (similar to SerpAPI)
+            elif 'inline_links' in first_result and 'cited_by' in first_result['inline_links']:
+                cited_by_info = first_result['inline_links']['cited_by']
+                if isinstance(cited_by_info, dict):
+                    cite_count = cited_by_info.get('total', 0) or cited_by_info.get('count', 0)
+                else:
+                    cite_count = cited_by_info
+            # Method 3: citation_count field
+            elif 'citation_count' in first_result:
+                cite_count = first_result['citation_count']
+            
+            if cite_count > 0:
+                logger.info(f"📊 Scrapingdog: {cite_count} citations for: {title[:50]}...")
+            else:
+                logger.info(f"ℹ️ Paper found but no citations: {title[:50]}...")
+            
+            return int(cite_count) if cite_count else 0
+        
+        logger.info(f"ℹ️ No results found for: {title[:50]}...")
+        return 0
+        
+    except requests.exceptions.Timeout:
+        logger.warning(f"⚠️ Scrapingdog API timeout for: {title[:40]}...")
+        return 0
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ Scrapingdog API request error: {e}")
+        return 0
+    except Exception as e:
+        logger.warning(f"⚠️ Scrapingdog API unexpected error: {e}")
+        return 0
+
+
+def get_cites_google_scholar(title):
+    """Get citation count from SerpAPI Google Scholar (BACKUP)"""
+    if not title:
+        return 0
+    
+    if not SERPAPI_KEY:
+        logger.debug("⚠️ SERPAPI_KEY not configured - skipping backup")
+        return 0
+    
+    try:
+        # Normalize title for better matching
+        search_title = normalize_title_for_search(title)
+        
+        # SerpAPI Google Scholar endpoint
+        url = "https://serpapi.com/search"
+        
+        params = {
+            'engine': 'google_scholar',
+            'q': search_title,
+            'api_key': SERPAPI_KEY,
+            'num': 1,  # Only get first result
+            'hl': 'en'  # English results
+        }
+        
+        response = http_session.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Check for API errors
+        if 'error' in data:
+            logger.error(f"⚠️ SerpAPI error: {data['error']}")
+            return 0
+        
+        # Extract citation count from first organic result
+        if data.get('organic_results') and len(data['organic_results']) > 0:
+            first_result = data['organic_results'][0]
+            
+            # Navigate to citation count
+            if 'inline_links' in first_result:
+                inline_links = first_result['inline_links']
+                if 'cited_by' in inline_links:
+                    count = inline_links['cited_by'].get('total', 0)
+                    
+                    if count > 0:
+                        logger.info(f"📊 SerpAPI (backup): {count} citations for: {title[:50]}...")
+                    else:
+                        logger.info(f"ℹ️ Paper found but no citations: {title[:50]}...")
+                    
+                    return count
+        
+        logger.info(f"ℹ️ No results found for: {title[:50]}...")
+        return 0
+        
+    except requests.exceptions.Timeout:
+        logger.warning(f"⚠️ SerpAPI timeout for: {title[:40]}...")
+        return 0
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ SerpAPI request error: {e}")
+        return 0
+    except Exception as e:
+        logger.warning(f"⚠️ SerpAPI unexpected error: {e}")
+        return 0
+
+
+def get_cites_openalex(title):
+    """Get citation count from OpenAlex (FALLBACK)"""
+    if not title:
+        return 0
+    
     try:
         encoded_title = urllib.parse.quote(title)
         url = f"https://api.openalex.org/works?filter=title.search:{encoded_title}&per_page=1"
@@ -259,37 +446,59 @@ def get_cites_semantic_scholar(title):
         response = http_session.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
+        
         if data.get('results'):
             count = data['results'][0].get('cited_by_count', 0) or 0
             if count > 0:
-                 logger.info(f"📊 OpenAlex SUCCESS: Found {count} citations for title: {title[:40]}...")
+                logger.info(f"📊 OpenAlex (fallback): {count} citations for: {title[:40]}...")
             return count
         return 0
     except Exception as e:
-        logger.warning(f"⚠️ OpenAlex API error: {e}"); return 0
+        logger.warning(f"⚠️ OpenAlex API error: {e}")
+        return 0
+
+
+def get_cites_with_fallback(title):
+    """
+    Get citation count with fallback chain:
+    1. Try Scrapingdog (primary)
+    2. Try SerpAPI (backup)
+    3. Try OpenAlex (fallback)
+    4. If all fail, return 0 (paper likely not indexed)
+    """
+    if not title:
+        return 0
     
-    # """Get citation count from Semantic Scholar API"""
-    # if not title:
-    #     return None
+    # Try Scrapingdog first
+    if SCRAPINGDOG_API_KEY:
+        cites = get_cites_scrapingdog(title)
+        if cites is not None and cites >= 0:
+            return cites
     
-    # try:
-    #     search_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-    #     params = {
-    #         "query": title,
-    #         "limit": 1,
-    #         "fields": "citationCount,title"
-    #     }
-        
-    #     response = requests.get(search_url, params=params, timeout=20)
-    #     time.sleep(2.5)
-    #     if response.status_code == 200:
-    #         data = response.json()
-    #         if data.get("data") and len(data["data"]) > 0:
-    #             return data["data"][0].get("citationCount", 0)
-    # except:
-    #     pass
+    # Fallback to SerpAPI
+    if SERPAPI_KEY:
+        cites = get_cites_google_scholar(title)
+        if cites is not None and cites >= 0:
+            return cites
     
-    # return None
+    # Last resort: OpenAlex
+    cites = get_cites_openalex(title)
+    if cites is not None and cites >= 0:
+        return cites
+    
+    # Paper not found in any database - this is OK for newer/niche papers
+    # Return 0 instead of None to allow the paper to be processed
+    logger.debug(f"Paper not found in any database (returning 0): {title[:60]}...")
+    return 0
+
+
+@lru_cache(maxsize=100)
+def get_cites_cached(title):
+    """Cached version of get_cites_with_fallback - always returns int"""
+    if not title:
+        return 0
+    result = get_cites_with_fallback(title)
+    return result if result is not None else 0
 
 def process_paper(year, id):
     """Process a single paper - returns paper data or None"""
@@ -303,9 +512,8 @@ def process_paper(year, id):
     if not title:
         return None
     
+    # Get citations - returns 0 for papers not in databases (always succeeds)
     cites = get_cites_cached(title)
-    if cites is None:
-        return None
     
     img_buffer = io.BytesIO()
     cropped.save(img_buffer, format='PNG', optimize=True)
@@ -330,21 +538,28 @@ def cite_scores(cite_guess, actual_cites):
 
 
 def calculate_score(year_guess, cite_guess, actual_year, actual_cites):
-    """Calculate score based on guesses"""
+    """Calculate score based on guesses using improved citation scoring"""
     year_dist = abs(year_guess - actual_year)
     
+    # Year scoring (unchanged)
     penalty = {0: 0, 1: 100, 2: 500, 3: 1000, 4: 2000, 5: 4000}
     if year_dist <= 5:
         year_score = 5000 - penalty[year_dist]
     else:
         year_score = max(0, 5000 - (year_dist - 5) * 1000)
     
+    # Citation scoring with improved algorithm
+    # Handles low citation counts better by adding bonus to both values
     if actual_cites == 0 and cite_guess == 0:
         cite_score = 5000
     else:
-        cite_score = cite_scores(cite_guess, actual_cites)
+        log_actual = log(actual_cites + 1)
+        log_guess = log(cite_guess + 1)
+        log_diff = abs(log_actual - log_guess)
+        cite_score = max(0, int(5000 - log_diff * 800))
     
     return year_score, cite_score
+
 
 @app.route('/')
 def index():
@@ -361,7 +576,7 @@ def get_random_paper():
             cache_keys = list(paper_cache.keys())
             cache_key = random.choice(cache_keys)
             cached_paper = paper_cache[cache_key].copy()
-            print(f"⚡ Cache hit: {cache_key} (cache size: {len(paper_cache)})")
+            logger.info(f"⚡ Cache hit: {cache_key} (cache size: {len(paper_cache)})")
             
             # Trigger background cache warming
             if not is_warming.is_set():
@@ -382,7 +597,7 @@ def get_random_paper():
         # Check cache again
         with cache_lock:
             if cache_key in paper_cache:
-                print(f"⚡ Cache hit: {cache_key}")
+                logger.info(f"⚡ Cache hit: {cache_key}")
                 return jsonify({
                     'success': True,
                     **paper_cache[cache_key]
@@ -398,7 +613,7 @@ def get_random_paper():
                 # Async save
                 threading.Thread(target=save_cache, daemon=True).start()
             
-            print(f"✅ Processed & cached: {year}/{id}")
+            logger.info(f"✅ Processed & cached: {year}/{id}")
             
             # Start background warming if not already running
             if not is_warming.is_set():
@@ -440,14 +655,18 @@ def cache_stats():
             'is_warming': is_warming.is_set()
         })
 
-# Background cache warmer
+
+# ============================================================================
+# BACKGROUND CACHE WARMING
+# ============================================================================
+
 def warm_cache_background():
     """Continuously warm cache in background"""
     if is_warming.is_set():
         return
     
     is_warming.set()
-    print("🔥 Background cache warming started...")
+    logger.info("🔥 Background cache warming started...")
     
     try:
         with ThreadPoolExecutor(max_workers=5) as executor:
@@ -465,14 +684,15 @@ def warm_cache_background():
                     if paper_data:
                         with cache_lock:
                             paper_cache[cache_key] = paper_data
-                        print(f"✅ Background cached: {cache_key} ({len(paper_cache)}/{WARM_CACHE_COUNT})")
+                        logger.info(f"✅ Background cached: {cache_key} ({len(paper_cache)}/{WARM_CACHE_COUNT})")
                 except:
                     pass
         
         save_cache()
-        print(f"✅ Cache warmed! {len(paper_cache)} papers ready")
+        logger.info(f"✅ Cache warmed! {len(paper_cache)} papers ready")
     finally:
         is_warming.clear()
+
 
 # Load cache on startup
 load_cache()

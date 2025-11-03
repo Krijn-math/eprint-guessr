@@ -16,6 +16,8 @@ themeToggle.addEventListener('click', () => {
 let currentPaper = null;
 let roundNumber = 1;
 let roundsPlayed = 0;
+let totalScore = 0;
+let roundScores = []; // Track individual round scores
 let isLoading = false;
 
 // DOM elements
@@ -24,6 +26,8 @@ const gameContainer = document.getElementById('game-container');
 const paperImage = document.getElementById('paper-image');
 const yearGuess = document.getElementById('year-guess');
 const citeGuess = document.getElementById('cite-guess');
+const yearValue = document.getElementById('year-value');
+const citeValue = document.getElementById('cite-value');
 const submitBtn = document.getElementById('submit-btn');
 const guessCard = document.getElementById('guess-card');
 const resultsCard = document.getElementById('results-card');
@@ -33,12 +37,45 @@ const cacheCount = document.getElementById('cache-count');
 
 const roundNumberDisplay = document.getElementById('round-number');
 const roundsPlayedDisplay = document.getElementById('rounds-played');
+const totalScoreDisplay = document.getElementById('total-score');
 const resultTitle = document.getElementById('result-title');
 const resultYear = document.getElementById('result-year');
 const resultCites = document.getElementById('result-cites');
 const yearFeedback = document.getElementById('year-feedback');
 const citeFeedback = document.getElementById('cite-feedback');
+const yearScoreDisplay = document.getElementById('year-score');
+const citeScoreDisplay = document.getElementById('cite-score');
+const roundScoreDisplay = document.getElementById('round-score');
 const paperLink = document.getElementById('paper-link');
+
+// Slider value update handlers with gradient background
+function updateSliderBackground(slider) {
+    const min = parseFloat(slider.min);
+    const max = parseFloat(slider.max);
+    const value = parseFloat(slider.value);
+    const percentage = ((value - min) / (max - min)) * 100;
+    
+    slider.style.background = `linear-gradient(to right, 
+        var(--accent-color) 0%, 
+        var(--accent-color) ${percentage}%, 
+        var(--border-color) ${percentage}%, 
+        var(--border-color) 100%)`;
+}
+
+yearGuess.addEventListener('input', (e) => {
+    yearValue.textContent = e.target.value;
+    updateSliderBackground(e.target);
+});
+
+citeGuess.addEventListener('input', (e) => {
+    const value = parseInt(e.target.value);
+    citeValue.textContent = value >= 1000 ? '1000+' : value;
+    updateSliderBackground(e.target);
+});
+
+// Initialize slider backgrounds on load
+updateSliderBackground(yearGuess);
+updateSliderBackground(citeGuess);
 
 // Update cache stats
 async function updateCacheStats() {
@@ -66,9 +103,13 @@ async function loadNewPaper() {
     loading.style.display = 'block';
     gameContainer.style.display = 'none';
     
-    // Reset form
-    yearGuess.value = '';
-    citeGuess.value = '';
+    // Reset sliders to middle values
+    yearGuess.value = 2012;
+    citeGuess.value = 250;
+    yearValue.textContent = '2012';
+    citeValue.textContent = '250';
+    updateSliderBackground(yearGuess);
+    updateSliderBackground(citeGuess);
     guessCard.style.display = 'block';
     resultsCard.style.display = 'none';
     currentPaper = null;
@@ -110,6 +151,7 @@ async function loadNewPaper() {
                 gameContainer.style.display = 'grid';
                 roundNumberDisplay.textContent = roundNumber;
                 roundsPlayedDisplay.textContent = roundsPlayed;
+                totalScoreDisplay.textContent = totalScore.toLocaleString();
                 
                 // Update cache stats
                 updateCacheStats();
@@ -183,32 +225,64 @@ async function submitGuess() {
     const yearGuessValue = parseInt(yearGuess.value);
     const citeGuessValue = parseInt(citeGuess.value);
     
-    if (isNaN(yearGuessValue) || yearGuessValue < 2000 || yearGuessValue > 2024) {
-        alert('Please enter a valid year between 2000 and 2024');
-        return;
-    }
-    
-    if (isNaN(citeGuessValue) || citeGuessValue < 0) {
-        alert('Please enter a valid number of citations (0 or more)');
-        return;
-    }
-    
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Evaluating...</span>';
+    submitBtn.innerHTML = '<span>Calculating Score...</span>';
     
     try {
+        // Get scores from backend
+        const response = await fetch('/api/submit-guess', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                year_guess: yearGuessValue,
+                cite_guess: citeGuessValue,
+                actual_year: currentPaper.year,
+                actual_cites: currentPaper.cites
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to calculate score');
+        }
+        
+        const scoreData = await response.json();
+        const yearScore = scoreData.year_score;
+        const citeScore = scoreData.cite_score;
+        const roundScore = scoreData.total_score;
+        
+        // Update cumulative score
+        totalScore += roundScore;
+        roundScores.push({
+            round: roundNumber,
+            yearScore: yearScore,
+            citeScore: citeScore,
+            totalScore: roundScore,
+            paper: currentPaper.title
+        });
+        
+        // Get feedback text
         const yearFeedbackText = getYearFeedback(yearGuessValue, currentPaper.year);
         const citeFeedbackText = getCitationFeedback(citeGuessValue, currentPaper.cites);
         
+        // Display results
         resultTitle.textContent = currentPaper.title;
         resultYear.textContent = currentPaper.year;
         resultCites.textContent = currentPaper.cites.toLocaleString();
         yearFeedback.textContent = yearFeedbackText;
         citeFeedback.textContent = citeFeedbackText;
+        
+        // Display scores
+        yearScoreDisplay.textContent = yearScore.toLocaleString();
+        citeScoreDisplay.textContent = citeScore.toLocaleString();
+        roundScoreDisplay.textContent = roundScore.toLocaleString();
+        
         paperLink.href = `https://eprint.iacr.org/${currentPaper.year}/${String(currentPaper.id).padStart(4, '0')}`;
         
         roundsPlayed++;
         roundsPlayedDisplay.textContent = roundsPlayed;
+        totalScoreDisplay.textContent = totalScore.toLocaleString();
         
         guessCard.style.display = 'none';
         resultsCard.style.display = 'block';
@@ -219,7 +293,7 @@ async function submitGuess() {
         
     } catch (error) {
         console.error('Error:', error);
-        alert('Error calculating feedback. Please try again.');
+        alert('Error calculating score. Please try again.');
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<span>Submit Your Guess</span><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -232,12 +306,23 @@ function nextRound() {
     loadNewPaper();
 }
 
+function resetGame() {
+    if (confirm('Are you sure you want to reset your score and start over?')) {
+        roundNumber = 1;
+        roundsPlayed = 0;
+        totalScore = 0;
+        roundScores = [];
+        loadNewPaper();
+    }
+}
+
 // Event listeners
 submitBtn.addEventListener('click', submitGuess);
 nextBtn.addEventListener('click', nextRound);
 
+// Allow Enter key on sliders to submit
 yearGuess.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') citeGuess.focus();
+    if (e.key === 'Enter') submitGuess();
 });
 
 citeGuess.addEventListener('keypress', (e) => {

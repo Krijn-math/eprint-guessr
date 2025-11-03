@@ -6,3 +6,5 @@ Pillow==10.1.0
 numpy==1.26.2
 beautifulsoup4==4.12.2
 gunicorn==21.2.0
+python-dotenv==1.0.0
+urllib3==2.1.0

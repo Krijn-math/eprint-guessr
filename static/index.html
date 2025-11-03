@@ -30,7 +30,8 @@
             <p class="subtitle">Master the art of cryptography paper dating</p>
             <div class="round-info">
                 <div class="round-badge">Round <span id="round-number">1</span></div>
-                <div class="score-badge">Rounds Played: <span id="rounds-played">0</span></div>
+                <div class="score-badge">Rounds: <span id="rounds-played">0</span></div>
+                <div class="score-badge total-score">Total: <span id="total-score">0</span></div>
                 <div class="cache-badge" id="cache-badge" style="display: none;">⚡ <span id="cache-count">0</span> cached</div>
             </div>
         </header>
@@ -62,18 +63,26 @@
                         <label for="year-guess">
                             <span class="label-icon">📅</span>
                             <span>Publication Year</span>
+                            <span class="value-display" id="year-value">2012</span>
                         </label>
-                        <input type="number" id="year-guess" min="2000" max="2024" placeholder="2015" class="input-field">
-                        <small class="input-hint">Between 2000 and 2024</small>
+                        <input type="range" id="year-guess" min="2000" max="2024" value="2012" class="slider" step="1">
+                        <div class="slider-labels">
+                            <span>2000</span>
+                            <span>2024</span>
+                        </div>
                     </div>
 
                     <div class="input-wrapper">
                         <label for="cite-guess">
                             <span class="label-icon">📚</span>
                             <span>Citation Count</span>
+                            <span class="value-display" id="cite-value">250</span>
                         </label>
-                        <input type="number" id="cite-guess" min="0" placeholder="150" class="input-field">
-                        <small class="input-hint">How influential is this paper?</small>
+                        <input type="range" id="cite-guess" min="0" max="1000" value="250" class="slider" step="10">
+                        <div class="slider-labels">
+                            <span>0</span>
+                            <span>1000+</span>
+                        </div>
                     </div>
 
                     <button id="submit-btn" class="btn-primary">
@@ -98,6 +107,24 @@
                             <span class="meta-item">
                                 <strong>Citations:</strong> <span id="result-cites"></span>
                             </span>
+                        </div>
+                    </div>
+
+                    <div class="score-section">
+                        <h3>Your Score</h3>
+                        <div class="score-breakdown">
+                            <div class="score-item">
+                                <span class="score-label">📅 Year Score:</span>
+                                <span class="score-value" id="year-score">0</span>
+                            </div>
+                            <div class="score-item">
+                                <span class="score-label">📚 Citation Score:</span>
+                                <span class="score-value" id="cite-score">0</span>
+                            </div>
+                            <div class="score-item total">
+                                <span class="score-label">🎯 Round Total:</span>
+                                <span class="score-value" id="round-score">0</span>
+                            </div>
                         </div>
                     </div>
 
