@@ -13,6 +13,112 @@ themeToggle.addEventListener('click', () => {
 });
 
 
+// Background Music Management
+const musicToggle = document.getElementById('music-toggle');
+const backgroundMusic = document.getElementById('background-music');
+
+// Music state
+let musicEnabled = localStorage.getItem('musicEnabled') === 'true';
+let musicVolume = parseFloat(localStorage.getItem('musicVolume')) || 0.20;
+
+// Set initial volume
+backgroundMusic.volume = musicVolume;
+
+// Initialize music UI state
+if (musicEnabled) {
+    musicToggle.classList.add('playing');
+}
+
+// Toggle music on/off
+musicToggle.addEventListener('click', () => {
+    if (backgroundMusic.paused) {
+        // Try to play
+        backgroundMusic.play()
+            .then(() => {
+                musicEnabled = true;
+                musicToggle.classList.add('playing');
+                localStorage.setItem('musicEnabled', 'true');
+                console.log('🎵 Music started');
+            })
+            .catch(error => {
+                console.log('Music playback prevented:', error);
+                alert('Please click anywhere on the page first to enable music');
+            });
+    } else {
+        // Pause
+        backgroundMusic.pause();
+        musicEnabled = false;
+        musicToggle.classList.remove('playing');
+        localStorage.setItem('musicEnabled', 'false');
+        console.log('🔇 Music stopped');
+    }
+});
+
+// Auto-start music on first user interaction (if enabled)
+document.addEventListener('click', function startMusicOnInteraction() {
+    if (musicEnabled && backgroundMusic.paused) {
+        backgroundMusic.play()
+            .then(() => {
+                console.log('🎵 Music auto-started on interaction');
+            })
+            .catch(() => {
+                console.log('Music auto-start failed');
+            });
+    }
+}, { once: true });
+
+// Optional: Pause music when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (!backgroundMusic.paused) {
+            backgroundMusic.pause();
+            window.musicWasPlaying = true;
+        }
+    } else {
+        if (window.musicWasPlaying && musicEnabled) {
+            backgroundMusic.play();
+            window.musicWasPlaying = false;
+        }
+    }
+});
+
+// Optional: Fade in music smoothly
+function fadeInMusic(duration = 2000) {
+    const targetVolume = musicVolume;
+    const steps = 50;
+    const stepDuration = duration / steps;
+    const volumeStep = targetVolume / steps;
+    
+    backgroundMusic.volume = 0;
+    let currentStep = 0;
+    
+    const fadeInterval = setInterval(() => {
+        currentStep++;
+        backgroundMusic.volume = Math.min(targetVolume, volumeStep * currentStep);
+        
+        if (currentStep >= steps) {
+            clearInterval(fadeInterval);
+        }
+    }, stepDuration);
+}
+
+// Optional: Volume Slider (if you added the volume control HTML)
+const volumeSlider = document.getElementById('volume-slider');
+if (volumeSlider) {
+    // Set initial value
+    volumeSlider.value = musicVolume * 100;
+    
+    // Handle volume changes
+    volumeSlider.addEventListener('input', (e) => {
+        const volume = e.target.value / 100;
+        backgroundMusic.volume = volume;
+        musicVolume = volume;
+        localStorage.setItem('musicVolume', volume);
+    });
+}
+
+console.log('🎵 Background music system initialized');
+
 function sliderToCitations(sliderValue) {
     const citations = Math.round((Math.exp(sliderValue / 20) - 1) * 10);
     return Math.min(citations, 1000); // Cap at 1k
