@@ -13,6 +13,193 @@ themeToggle.addEventListener('click', () => {
 });
 
 
+
+// Background Music Management
+const musicToggle = document.getElementById('music-toggle');
+const backgroundMusic = document.getElementById('background-music');
+
+// Music state
+let musicEnabled = localStorage.getItem('musicEnabled') === 'true';
+let musicVolume = 0.10;
+let userHasInteracted = false;
+
+// Set initial volume
+backgroundMusic.volume = musicVolume;
+
+// Initialize music UI state (but don't try to play yet)
+if (musicEnabled) {
+    musicToggle.classList.add('pending');  // Visual hint it will auto-start
+}
+
+// Mark that user has interacted (required for autoplay)
+function markUserInteraction() {
+    userHasInteracted = true;
+    // Try to auto-start music if it was enabled
+    if (musicEnabled && backgroundMusic.paused) {
+        backgroundMusic.play()
+            .then(() => {
+                musicToggle.classList.remove('pending');
+                musicToggle.classList.add('playing');
+                console.log('🎵 Music auto-started');
+            })
+            .catch(() => {
+                // Silent fail - user can manually start
+                musicToggle.classList.remove('pending');
+                console.log('🎵 Music waiting for manual start');
+            });
+    }
+}
+
+// Listen for ANY user interaction to enable autoplay
+['click', 'touchstart', 'keydown'].forEach(eventType => {
+    document.addEventListener(eventType, markUserInteraction, { once: true });
+});
+
+// Toggle music on/off
+musicToggle.addEventListener('click', (e) => {
+    e.stopPropagation(); // Prevent double-triggering
+    
+    if (backgroundMusic.paused) {
+        // Try to play
+        backgroundMusic.play()
+            .then(() => {
+                musicEnabled = true;
+                musicToggle.classList.remove('pending');
+                musicToggle.classList.add('playing');
+                localStorage.setItem('musicEnabled', 'true');
+                console.log('🎵 Music started');
+            })
+            .catch(error => {
+                console.log('Music playback failed:', error);
+                
+                // Better user feedback - no annoying alert
+                musicToggle.classList.add('error');
+                setTimeout(() => {
+                    musicToggle.classList.remove('error');
+                }, 2000);
+                
+                // Show subtle message instead of alert
+                showMusicMessage('Click anywhere to enable music');
+            });
+    } else {
+        // Pause
+        backgroundMusic.pause();
+        musicEnabled = false;
+        musicToggle.classList.remove('playing', 'pending');
+        localStorage.setItem('musicEnabled', 'false');
+        console.log('🔇 Music stopped');
+    }
+});
+
+// Show a subtle message instead of alert
+function showMusicMessage(text) {
+    // Check if message element exists
+    let msg = document.getElementById('music-message');
+    if (!msg) {
+        msg = document.createElement('div');
+        msg.id = 'music-message';
+        msg.style.cssText = `
+            position: fixed;
+            top: 140px;
+            right: 20px;
+            background: var(--bg-primary);
+            border: 2px solid var(--accent-color);
+            border-radius: 8px;
+            padding: 10px 15px;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            animation: slideIn 0.3s ease;
+            max-width: 200px;
+            text-align: center;
+        `;
+        document.body.appendChild(msg);
+    }
+    
+    msg.textContent = text;
+    msg.style.display = 'block';
+    
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+        msg.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            msg.style.display = 'none';
+        }, 300);
+    }, 3000);
+}
+
+// Add animations for message (add to style.css or inline)
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(300px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(300px); opacity: 0; }
+    }
+    
+    .music-toggle.pending {
+        border-color: orange;
+        animation: pendingPulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pendingPulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
+    }
+    
+    .music-toggle.error {
+        border-color: red;
+        animation: shake 0.5s ease;
+    }
+    
+    @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px); }
+        75% { transform: translateX(5px); }
+    }
+`;
+document.head.appendChild(style);
+
+// Optional: Pause music when tab is hidden
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (!backgroundMusic.paused) {
+            backgroundMusic.pause();
+            window.musicWasPlaying = true;
+        }
+    } else {
+        if (window.musicWasPlaying && musicEnabled) {
+            backgroundMusic.play().catch(() => {
+                // Silent fail if can't resume
+            });
+            window.musicWasPlaying = false;
+        }
+    }
+});
+
+// Optional: Volume Slider (if you added the volume control HTML)
+const volumeSlider = document.getElementById('volume-slider');
+if (volumeSlider) {
+    // Set initial value
+    volumeSlider.value = musicVolume * 100;
+    
+    // Handle volume changes
+    volumeSlider.addEventListener('input', (e) => {
+        const volume = e.target.value / 100;
+        backgroundMusic.volume = volume;
+        musicVolume = volume;
+        localStorage.setItem('musicVolume', volume);
+    });
+}
+
+console.log('🎵 Background music system initialized (server-optimized)');
+
+
+
 function sliderToCitations(sliderValue) {
     const citations = Math.round((Math.exp(sliderValue / 20) - 1) * 10);
     return Math.min(citations, 1000); // Cap at 1k
